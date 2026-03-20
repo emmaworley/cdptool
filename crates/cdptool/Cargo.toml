@@ -1,6 +1,6 @@
 [package]
 name = "cdptool"
-version = "0.2.0"
+version = "1.0.0"
 edition = "2024"
 description = "Parser, serializer, and LZSS+Huffman compressor for CDP (CHUMP) archives"
 license = "MIT"
