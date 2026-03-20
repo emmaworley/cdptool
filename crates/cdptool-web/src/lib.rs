@@ -1,6 +1,11 @@
-//! WASM bindings for cdptool, exposing CDP pack/unpack to JavaScript.
+//! WASM bindings for cdptool — streaming CDP extraction.
+//!
+//! Exposes a stateful [`CdpExtractor`] that parses a CDP once and yields
+//! one decompressed file at a time, plus [`info_cdp`] for displaying the
+//! tag tree. The JS side feeds extracted files into a streaming zip writer.
 
-use cdptool::cdp::{self as cdpmod, CdpDocument, CdpTag};
+use cdptool::cdp as cdpmod;
+use cdptool::extract;
 use cdptool::lzss;
 use wasm_bindgen::prelude::*;
 
@@ -8,95 +13,53 @@ fn err(e: impl std::fmt::Display) -> JsValue {
     JsValue::from_str(&e.to_string())
 }
 
-/// Parse a CDP file and extract all compressed files.
-///
-/// Returns a JS `Array` of `[name: string, data: Uint8Array]` pairs.
+/// Stateful extractor. Construct with CDP bytes, then call `next_file()` repeatedly.
 #[wasm_bindgen]
-pub fn extract_cdp(cdp_bytes: &[u8]) -> Result<JsValue, JsValue> {
-    let doc = cdpmod::parse(cdp_bytes).map_err(err)?;
-    let files = cdpmod::collect_files(&doc.tags);
-    let result = js_sys::Array::new();
+pub struct CdpExtractor {
+    /// `(zip_path, compressed_blob)` pairs from [`extract::collect_pending`].
+    pending: Vec<(String, Vec<u8>)>,
+    cursor: usize,
+}
 
-    for (name, blob) in &files {
-        if blob.len() < 4 {
-            continue;
+#[wasm_bindgen]
+impl CdpExtractor {
+    /// Parse a CDP and prepare for streaming extraction.
+    #[wasm_bindgen(constructor)]
+    pub fn new(cdp_bytes: &[u8]) -> Result<CdpExtractor, JsValue> {
+        let doc = cdpmod::parse(cdp_bytes).map_err(err)?;
+        let pending = extract::collect_pending(&doc).map_err(err)?;
+        Ok(CdpExtractor { pending, cursor: 0 })
+    }
+
+    /// Total number of entries (config.json files + real files).
+    pub fn total(&self) -> usize {
+        self.pending.len()
+    }
+
+    /// How many entries have been yielded so far.
+    pub fn progress(&self) -> usize {
+        self.cursor
+    }
+
+    /// Get the next file. Returns null when done.
+    ///
+    /// Returns a JS array `[path: string, data: Uint8Array]`.
+    pub fn next_file(&mut self) -> Result<JsValue, JsValue> {
+        if self.cursor >= self.pending.len() {
+            return Ok(JsValue::NULL);
         }
+
+        let (path, blob) = &self.pending[self.cursor];
+        self.cursor += 1;
+
         let uncomp_size = u32::from_le_bytes(blob[0..4].try_into().unwrap()) as usize;
         let decompressed = lzss::decompress(&blob[4..], uncomp_size).map_err(err)?;
 
         let pair = js_sys::Array::new();
-        pair.push(&JsValue::from_str(name));
+        pair.push(&JsValue::from_str(path));
         pair.push(&js_sys::Uint8Array::from(decompressed.as_slice()).into());
-        result.push(&pair);
+        Ok(pair.into())
     }
-    Ok(result.into())
-}
-
-/// Compress files into a CDP archive.
-///
-/// Takes a JS `Array` of `[name: string, data: Uint8Array]` pairs.
-/// Returns the serialized CDP as a `Uint8Array`.
-#[wasm_bindgen]
-pub fn create_cdp(files_js: &JsValue) -> Result<Vec<u8>, JsValue> {
-    let files_array: &js_sys::Array = files_js
-        .dyn_ref()
-        .ok_or_else(|| err("expected array of [name, data] pairs"))?;
-
-    let mut file_tags: Vec<CdpTag> = Vec::new();
-    for i in 0..files_array.length() {
-        let pair: js_sys::Array = files_array
-            .get(i)
-            .dyn_into()
-            .map_err(|_| err("each element must be [name, data]"))?;
-        let name: String = pair
-            .get(0)
-            .as_string()
-            .ok_or_else(|| err("file name must be a string"))?;
-        let data_js: js_sys::Uint8Array = pair
-            .get(1)
-            .dyn_into()
-            .map_err(|_| err("file data must be Uint8Array"))?;
-        let raw_data = data_js.to_vec();
-        let uncomp_size = raw_data.len() as u32;
-
-        let compressed = lzss::compress(&raw_data, 2, 9).map_err(err)?;
-        let mut blob = uncomp_size.to_le_bytes().to_vec();
-        blob.extend_from_slice(&compressed);
-
-        file_tags.push(CdpTag::Binary { name, data: blob });
-    }
-
-    let doc = CdpDocument {
-        version: 1,
-        reserved: 0,
-        tags: vec![
-            CdpTag::Container {
-                name: "assets".into(),
-                children: vec![CdpTag::Container {
-                    name: "asset".into(),
-                    children: vec![
-                        CdpTag::String {
-                            name: "compression".into(),
-                            value: "LZSS".into(),
-                        },
-                        CdpTag::Container {
-                            name: "files".into(),
-                            children: file_tags,
-                        },
-                    ],
-                }],
-            },
-            CdpTag::String {
-                name: "kind".into(),
-                value: "archive".into(),
-            },
-            CdpTag::Integer {
-                name: "package-version".into(),
-                values: vec![1],
-            },
-        ],
-    };
-    Ok(cdpmod::serialize(&doc))
 }
 
 /// Parse a CDP file and return its tag tree as human-readable text.

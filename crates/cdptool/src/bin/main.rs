@@ -4,42 +4,38 @@ use std::io::Write;
 use std::path::Path;
 
 use cdptool::cdp::{self as cdpmod, CdpDocument, CdpTag};
+use cdptool::extract;
 use cdptool::lzss;
 
 fn cmd_extract(cdp_path: &str, out_dir: &str) -> Result<()> {
     let data = fs::read(cdp_path).with_context(|| format!("reading {cdp_path}"))?;
     let doc = cdpmod::parse(&data)?;
-    fs::create_dir_all(out_dir)?;
+    let entries = extract::extract_all(&doc)?;
 
-    let files = cdpmod::collect_files(&doc.tags);
     let mut ok = 0usize;
     let mut fail = 0usize;
 
-    for (name, blob) in &files {
-        if blob.len() < 4 {
-            continue;
+    for entry in &entries {
+        let out_path = Path::new(out_dir).join(&entry.path);
+        if let Some(parent) = out_path.parent() {
+            fs::create_dir_all(parent)?;
         }
-        let uncomp_size = u32::from_le_bytes(blob[0..4].try_into().unwrap()) as usize;
-        let comp_data = &blob[4..];
-
-        match lzss::decompress(comp_data, uncomp_size) {
-            Ok(result) => {
-                let out_path = Path::new(out_dir).join(name);
-                let mut f = fs::File::create(&out_path)?;
-                f.write_all(&result)?;
+        match fs::File::create(&out_path) {
+            Ok(mut f) => {
+                f.write_all(&entry.data)?;
                 ok += 1;
-                println!("OK:   {name} ({} bytes)", result.len());
+                println!("OK:   {} ({} bytes)", entry.path, entry.data.len());
             }
             Err(e) => {
                 fail += 1;
-                println!("FAIL: {name} ({e})");
+                println!("FAIL: {} ({e})", entry.path);
             }
         }
     }
 
-    println!("\n{ok}/{} extracted to {out_dir}/", files.len());
+    println!("\n{ok}/{} extracted to {out_dir}/", entries.len());
     if fail > 0 {
-        bail!("{fail} file(s) failed to decompress");
+        bail!("{fail} file(s) failed");
     }
     Ok(())
 }
@@ -63,7 +59,6 @@ fn cmd_info(cdp_path: &str) -> Result<()> {
 
 fn cmd_create(cdp_path: &str, dir: &str, args: &[String]) -> Result<()> {
     let mut username = "unknown".to_string();
-    let mut mode: u8 = 2;
     let mut level: u8 = 9;
 
     let mut i = 0;
@@ -76,14 +71,6 @@ fn cmd_create(cdp_path: &str, dir: &str, args: &[String]) -> Result<()> {
                     .clone();
                 i += 2;
             }
-            "--mode" => {
-                mode = args
-                    .get(i + 1)
-                    .context("--mode requires a value")?
-                    .parse()
-                    .context("--mode must be 0, 1, or 2")?;
-                i += 2;
-            }
             "--level" => {
                 level = args
                     .get(i + 1)
@@ -91,10 +78,6 @@ fn cmd_create(cdp_path: &str, dir: &str, args: &[String]) -> Result<()> {
                     .parse()
                     .context("--level must be 0–15")?;
                 i += 2;
-            }
-            "--store" => {
-                level = 0;
-                i += 1;
             }
             other => bail!("unknown flag: {other}"),
         }
@@ -117,7 +100,7 @@ fn cmd_create(cdp_path: &str, dir: &str, args: &[String]) -> Result<()> {
         let raw_data = fs::read(entry.path())?;
         let uncomp_size = raw_data.len() as u32;
 
-        let compressed = lzss::compress(&raw_data, mode, level)?;
+        let compressed = lzss::compress(&raw_data, 2, level)?;
 
         let mut blob = uncomp_size.to_le_bytes().to_vec();
         blob.extend_from_slice(&compressed);
@@ -208,9 +191,7 @@ fn usage() -> ! {
     eprintln!();
     eprintln!("Create flags:");
     eprintln!("  --username <name>    Set username (default: unknown)");
-    eprintln!("  --mode <0|1|2>       Compression mode (default: 2)");
-    eprintln!("  --level <0-15>       Compression level (default: 9, 0=store)");
-    eprintln!("  --store              Store without compression (level=0)");
+    eprintln!("  --level <0-15>       Compression level (default: 9, 0=uncompressed)");
     std::process::exit(2);
 }
 

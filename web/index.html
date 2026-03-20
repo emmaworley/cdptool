@@ -3,17 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>cdptool — CDP Archive Packer/Unpacker</title>
+  <meta name="color-scheme" content="dark">
+  <title>cdptool — CDP Archive Extractor</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <main>
-    <h1>cdptool</h1>
-    <p class="subtitle">Pack and unpack CDP (CHUMP) archives in the browser.</p>
+    <h1><a href="https://github.com/emmaworley/cdptool">cdptool</a></h1>
+    <p class="subtitle">Extract files from CDP (CHUMP) archives.</p>
 
     <div id="drop-zone" tabindex="0">
-      <p>Drop a <code>.cdp</code> file to <strong>unpack</strong></p>
-      <p>Drop other files to <strong>pack</strong> into a CDP</p>
+      <p>Drop a <code>.cdp</code> file here to extract</p>
+      <p class="hint">or click to browse</p>
     </div>
 
     <div id="status" hidden></div>
@@ -21,10 +22,13 @@
     <div id="results" hidden>
       <div id="results-header">
         <h2 id="results-title"></h2>
-        <button id="info-btn" hidden>Show structure</button>
+        <button id="download-btn">Download .zip</button>
       </div>
-      <div id="file-list"></div>
-      <pre id="info-output" hidden></pre>
+      <div id="progress" hidden>
+        <div id="progress-bar"><div id="progress-fill"></div></div>
+        <p id="progress-text"></p>
+      </div>
+      <pre id="info-output"></pre>
     </div>
   </main>
 

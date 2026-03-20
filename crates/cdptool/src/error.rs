@@ -28,4 +28,8 @@ pub enum CdpError {
     /// The compression mode byte is outside the valid range (0–2).
     #[error("invalid compression mode {0}")]
     InvalidMode(u8),
+
+    /// JSON serialization failed.
+    #[error("JSON serialization failed: {0}")]
+    JsonSerialize(String),
 }

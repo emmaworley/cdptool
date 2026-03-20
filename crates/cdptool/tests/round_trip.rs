@@ -101,3 +101,34 @@ fn store_mode_is_identity() {
     let decompressed = lzss::decompress(&compressed, data.len()).unwrap();
     assert_eq!(&decompressed, data);
 }
+
+// --- Mode-specific decompression tests ---
+//
+// The bitstream LZSS decompressor (level 1–6) has no encoder, so we can't
+// round-trip through it directly. However, we can verify that data compressed
+// at level 9 (Huffman) and then stored in each mode decompresses correctly
+// when the mode parameter is varied during compression + decompression.
+
+/// Verify compress(mode=0, level=9) → decompress round-trips correctly.
+#[test]
+fn round_trip_mode_0() {
+    let data: Vec<u8> = (0..4096).map(|i| ((i * 37 + 13) % 256) as u8).collect();
+    let compressed = lzss::compress(&data, 0, 9).unwrap();
+    let decompressed = lzss::decompress(&compressed, data.len()).unwrap();
+    assert_eq!(
+        decompressed, data,
+        "mode 0 (8-bit distance) round-trip failed"
+    );
+}
+
+/// Verify compress(mode=1, level=9) → decompress round-trips correctly.
+#[test]
+fn round_trip_mode_1() {
+    let data: Vec<u8> = (0..4096).map(|i| ((i * 37 + 13) % 256) as u8).collect();
+    let compressed = lzss::compress(&data, 1, 9).unwrap();
+    let decompressed = lzss::decompress(&compressed, data.len()).unwrap();
+    assert_eq!(
+        decompressed, data,
+        "mode 1 (12-bit distance) round-trip failed"
+    );
+}

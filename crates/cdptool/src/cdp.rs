@@ -140,18 +140,30 @@ impl CdpTag {
 
 // --- Parsing ---
 
+/// Read a little-endian `u32` from `data` at `offset`.
+///
+/// # Safety precondition
+/// Caller must ensure `offset + 4 <= data.len()`.
 fn read_u32(data: &[u8], offset: usize) -> u32 {
     Cursor::new(&data[offset..])
         .read_u32::<LittleEndian>()
         .unwrap()
 }
 
+/// Read a little-endian `i32` from `data` at `offset`.
+///
+/// # Safety precondition
+/// Caller must ensure `offset + 4 <= data.len()`.
 fn read_i32(data: &[u8], offset: usize) -> i32 {
     Cursor::new(&data[offset..])
         .read_i32::<LittleEndian>()
         .unwrap()
 }
 
+/// Read a little-endian `f32` from `data` at `offset`.
+///
+/// # Safety precondition
+/// Caller must ensure `offset + 4 <= data.len()`.
 fn read_f32(data: &[u8], offset: usize) -> f32 {
     Cursor::new(&data[offset..])
         .read_f32::<LittleEndian>()
@@ -161,6 +173,7 @@ fn read_f32(data: &[u8], offset: usize) -> f32 {
 fn parse_tags(data: &[u8], mut offset: usize, end: usize) -> Vec<CdpTag> {
     let mut tags = Vec::new();
     while offset + 6 <= end {
+        // Bounds: offset + 4 <= end is guaranteed by the while guard (offset + 6 <= end).
         let tag_len = read_u32(data, offset) as usize;
         let tag_start = offset;
         offset += 4;
@@ -169,6 +182,10 @@ fn parse_tags(data: &[u8], mut offset: usize, end: usize) -> Vec<CdpTag> {
         offset += 1;
 
         let name = if name_len > 0 {
+            // Bug fix #1: validate that the name slice fits within the tag region.
+            if offset + name_len > end {
+                break;
+            }
             let s = std::string::String::from_utf8_lossy(&data[offset..offset + name_len - 1])
                 .to_string();
             offset += name_len;
@@ -183,10 +200,11 @@ fn parse_tags(data: &[u8], mut offset: usize, end: usize) -> Vec<CdpTag> {
         let tag_type = data[offset];
         offset += 1;
 
-        let value_end = tag_start + 4 + tag_len;
-        if value_end > end {
-            break;
-        }
+        // Bug fix #2: use checked arithmetic to prevent overflow.
+        let value_end = match (tag_start).checked_add(4 + tag_len) {
+            Some(v) if v <= end => v,
+            _ => break,
+        };
 
         let value_data = &data[offset..value_end];
 
