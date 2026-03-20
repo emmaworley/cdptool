@@ -4,7 +4,7 @@ Pack and unpack CDP (CHUMP) archive files.
 
 CDP is a binary container format used to distribute game assets.
 Each archive holds a tree of typed tags — metadata like names and
-identifiers alongside LZSS+Huffman-compressed file payloads.
+identifiers alongside LZSS-compressed file payloads.
 
 **Web UI:** <https://emma.gg/cdptool>
 — drop a `.cdp` file to extract its contents as a zip. No install required.
@@ -127,7 +127,7 @@ size, followed by the LZSS-compressed stream:
 
 ---
 
-## LZSS + Adaptive Huffman Compression
+## LZSS Compression
 
 ### Stream header byte
 
@@ -135,12 +135,19 @@ The first byte of the compressed stream encodes two fields:
 
 ```
 bits 7–4: mode   (0, 1, or 2)
-bits 3–0: level  (0 = stored uncompressed, 1–15 = compressed)
+bits 3–0: level  (0 = stored, 1–6 = bitstream LZSS, 7–15 = Huffman LZSS)
 ```
 
-If level is 0 the remaining bytes are raw uncompressed data.
+| Level | Encoding |
+|-------|----------|
+| 0 | Stored verbatim (no compression) |
+| 1–6 | Bitstream LZSS: flag words + inline tokens |
+| 7–15 | Adaptive Huffman LZSS: entropy-coded tokens |
 
 ### Compression modes
+
+The mode selects the distance encoding width. All three levels share
+the same mode table:
 
 | Mode | Header nibble | Total distance bits | Distance tree symbols | Distance extra bits |
 |------|---------------|---------------------|-----------------------|---------------------|
@@ -151,9 +158,44 @@ If level is 0 the remaining bytes are raw uncompressed data.
 Distance = `(dist_symbol << extra_bits) | read_bits(extra_bits)`, masked
 to `total_distance_bits`. A decoded distance of 0 is treated as 1.
 
-### Bitstream symbols
+### Bitstream LZSS (levels 1–6)
 
-The remaining bytes form an LSB-first bitstream of Huffman-coded symbols:
+Tokens are packed into 32-bit flag words read LSB-first. Each flag word
+is followed by the payload bytes for its tokens. The flag bits determine
+the token type.
+
+#### Mode 0 (8-bit distance)
+
+Each token consumes 1 or 4 flag bits:
+
+| Flag bits | Token | Payload |
+|-----------|-------|---------|
+| `0` | Literal | 1 byte |
+| `1` + 3 length bits | Back-reference | 1-byte distance |
+
+The 3 length bits encode match length − 3 (range 0–6). If all three
+bits are set (value 7), an escape byte follows in the payload giving
+the actual length − 3 (range 7–255).
+
+#### Modes 1 & 2 (12/14-bit distance)
+
+Each token consumes 1 or 2 flag bits:
+
+| Flag bits | Token | Payload |
+|-----------|-------|---------|
+| `00` | Literal | 1 byte |
+| `01` | Short run | 1 length byte, then that many + 3 raw bytes |
+| `1` | Back-reference | 16-bit word: distance \| (length << shift) |
+
+The 16-bit word packs distance in the low bits and length − 3 in the
+high bits. If the length field is maxed out (all bits set), an escape
+byte follows with the actual length − 3.
+
+### Huffman LZSS (levels 7–15)
+
+Literals, length codes, and distance symbols are entropy-coded through
+adaptive Huffman trees. The bitstream is a sequence of Huffman-coded
+symbols:
 
 | Symbol | Meaning |
 |--------|---------|
@@ -161,10 +203,17 @@ The remaining bytes form an LSB-first bitstream of Huffman-coded symbols:
 | 256–271 | Match length code (index into length table) |
 | 272 | End of stream |
 
+A back-reference is encoded as:
+
+1. Huffman-encode `256 + length_code` through the literal/length tree
+2. Write extra length bits (if any) raw into the bitstream
+3. Huffman-encode the distance symbol through the distance tree
+4. Write distance extra bits raw into the bitstream
+
 ### Length table
 
-Each length code maps to a base value and a count of extra bits read
-from the stream. The match length is `base + extra_value + 3`.
+Shared by both bitstream and Huffman levels. Each length code maps to a
+base value and a count of extra bits. Match length = `base + extra + 3`.
 
 | Code | Base | Extra bits | Length range |
 |------|------|------------|-------------|
@@ -185,14 +234,9 @@ from the stream. The match length is `base + extra_value + 3`.
 | 14 | 97 | 5 | 100–131 |
 | 15 | 129 | 7 | 132–259 |
 
-### Match encoding
-
-A back-reference is encoded as:
-
-1. Huffman-encode `256 + length_code` through the literal/length tree
-2. Write extra length bits (if any) raw into the bitstream
-3. Huffman-encode the distance symbol through the distance tree
-4. Write distance extra bits raw into the bitstream
+Note: bitstream levels use the length table only for Huffman levels.
+At bitstream levels, match length − 3 is encoded directly in flag bits
+or escape bytes as described above.
 
 ### Adaptive Huffman tree
 
