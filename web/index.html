@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>cdptool — CDP Archive Packer/Unpacker</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <h1>cdptool</h1>
+    <p class="subtitle">Pack and unpack CDP (CHUMP) archives in the browser.</p>
+
+    <div id="drop-zone" tabindex="0">
+      <p>Drop a <code>.cdp</code> file to <strong>unpack</strong></p>
+      <p>Drop other files to <strong>pack</strong> into a CDP</p>
+    </div>
+
+    <div id="status" hidden></div>
+
+    <div id="results" hidden>
+      <div id="results-header">
+        <h2 id="results-title"></h2>
+        <button id="info-btn" hidden>Show structure</button>
+      </div>
+      <div id="file-list"></div>
+      <pre id="info-output" hidden></pre>
+    </div>
+  </main>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

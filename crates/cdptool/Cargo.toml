@@ -1,0 +1,21 @@
+[package]
+name = "cdptool"
+version = "0.2.0"
+edition = "2024"
+description = "Parser, serializer, and LZSS+Huffman compressor for CDP (CHUMP) archives"
+license = "MIT"
+keywords = ["cdp", "chump", "compression", "archive", "lzss"]
+categories = ["compression", "encoding", "parser-implementations"]
+
+[[bin]]
+name = "cdptool"
+path = "src/bin/main.rs"
+
+[dependencies]
+anyhow = "1"
+bitstream-io = "2"
+byteorder = "1"
+thiserror = "2"
+
+[dev-dependencies]
+sha2 = "0.10"

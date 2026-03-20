@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = ["crates/cdptool", "crates/cdptool-web"]
+
+[profile.release]
+opt-level = "s"
+lto = true
